@@ -5,6 +5,7 @@ Rectangle {
     id: button
     property alias text: text.text
     property string buttonColor: "#242424"
+    signal clicked()
 
     Layout.fillWidth: true
     Layout.preferredHeight: 80
@@ -14,6 +15,7 @@ Rectangle {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
+        onClicked: parent.clicked()
     }
 
     states: [
