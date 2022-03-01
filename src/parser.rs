@@ -5,7 +5,7 @@ pub trait Parse {
 }
 
 pub trait Compute {
-    fn compute(&self, def: f32) -> f32;
+    fn compute(&self, last: f32) -> f32;
 }
 
 
@@ -13,7 +13,7 @@ pub trait Compute {
 pub enum Expr {
     Add(AddExpr),
     AddEnd(AddExprEnd),
-    MultEnd(ProdExprEnd),
+    MultEnd(MultExprEnd),
 }
 
 impl Parse for Expr {
@@ -27,7 +27,7 @@ impl Parse for Expr {
 
         }
 
-        if let Some((end, n)) = ProdExprEnd::parse(l) {
+        if let Some((end, n)) = MultExprEnd::parse(l) {
             return Some((Self::MultEnd(end), n));
         }
 
@@ -36,30 +36,30 @@ impl Parse for Expr {
 }
 
 impl Compute for Expr {
-     fn compute(&self, def: f32) -> f32 {
+     fn compute(&self, last: f32) -> f32 {
          match self {
-             Self::Add(add) => add.compute(def),
-             Self::AddEnd(add) => def + add.compute(def),
-             Self::MultEnd(mult) => def * mult.compute(def)
+             Self::Add(add) => add.compute(last),
+             Self::AddEnd(add) => last + add.compute(last),
+             Self::MultEnd(mult) => last * mult.compute(last)
          }
      }
 }
 
 #[derive(Clone)]
-pub struct AddExpr(ProdExpr, Option<AddExprEnd>);
+pub struct AddExpr(MultExpr, Option<AddExprEnd>);
 
 impl Parse for AddExpr {
     fn parse(l: &[Lexeme]) -> Option<(Self,usize)> {
         let mut tokens = 0;
 
-        if let Some((prod, n)) = ProdExpr::parse(l) {
+        if let Some((mult, n)) = MultExpr::parse(l) {
             tokens += n;
 
             if let Some ((end, n)) = AddExprEnd::parse(&l[tokens..]) {
                 tokens += n;
-                Some((Self(prod, Some(end)), tokens))
+                Some((Self(mult, Some(end)), tokens))
             } else {
-                Some((Self(prod, None), tokens))
+                Some((Self(mult, None), tokens))
             }
         } else {
             None
@@ -68,15 +68,17 @@ impl Parse for AddExpr {
 }
 
 impl Compute for AddExpr {
-    fn compute(&self, def: f32) -> f32 {
-        self.0.compute(def) + self.1.clone().map(|e| e.compute(def)).unwrap_or(0.0)
+    fn compute(&self, last: f32) -> f32 {
+        self.0.compute(last) + self.1.clone()
+            .map(|e| e.compute(last))
+            .unwrap_or(0.0)
     }
 }
 
 #[derive(Clone)]
 pub enum AddExprEnd {
-    Add(ProdExpr, Option<Box<AddExprEnd>>),
-    Sub(ProdExpr, Option<Box<AddExprEnd>>),
+    Add(MultExpr, Option<Box<AddExprEnd>>),
+    Sub(MultExpr, Option<Box<AddExprEnd>>),
 }
 
 impl Parse for AddExprEnd {
@@ -88,7 +90,7 @@ impl Parse for AddExprEnd {
         if Some(&Lexeme::Plus) == next || Some(&Lexeme::Minus) == next {
             tokens += 1;
 
-            if let Some((base, n)) = ProdExpr::parse(&l[tokens..]) {
+            if let Some((base, n)) = MultExpr::parse(&l[tokens..]) {
                 tokens += n;
                 let (end, n) = AddExprEnd::parse(&l[tokens..]).map(|(e, n)| {
                     (Some(Box::new(e)), n)
@@ -109,25 +111,33 @@ impl Parse for AddExprEnd {
 }
 
 impl Compute for AddExprEnd {
-    fn compute(&self, def: f32) -> f32 {
+    fn compute(&self, last: f32) -> f32 {
         match self {
-            Self::Add(prod, end) => prod.compute(def) + end.clone().map(|e| e.compute(def)).unwrap_or(0.0),
-            Self::Sub(prod, end) => -prod.compute(def) + end.clone().map(|e| e.compute(def)).unwrap_or(0.0),
+            Self::Add(mult, end) => {
+                mult.compute(last) + end.clone()
+                    .map(|e| e.compute(last))
+                    .unwrap_or(0.0)
+            },
+            Self::Sub(mult, end) => {
+                -mult.compute(last) + end.clone()
+                    .map(|e| e.compute(last))
+                    .unwrap_or(0.0)
+            },
         }
     }
 }
 
 #[derive(Clone)]
-pub struct ProdExpr(BaseExpr, Option<ProdExprEnd>);
+pub struct MultExpr(BaseExpr, Option<MultExprEnd>);
 
-impl Parse for ProdExpr {
+impl Parse for MultExpr {
     fn parse(l: &[Lexeme]) -> Option<(Self,usize)> {
         let mut tokens = 0;
 
         if let Some((base, n)) = BaseExpr::parse(l) {
             tokens += n;
 
-            if let Some ((end, n)) = ProdExprEnd::parse(&l[tokens..]) {
+            if let Some ((end, n)) = MultExprEnd::parse(&l[tokens..]) {
                 tokens += n;
                 Some((Self(base, Some(end)), tokens))
             } else {
@@ -139,20 +149,20 @@ impl Parse for ProdExpr {
     }
 }
 
-impl Compute for ProdExpr {
-    fn compute(&self, def: f32) -> f32 {
-        let base = self.0.compute(def);
-        base * self.1.clone().map(|e| e.compute(def)).unwrap_or(1.0)
+impl Compute for MultExpr {
+    fn compute(&self, last: f32) -> f32 {
+        let base = self.0.compute(last);
+        base * self.1.clone().map(|e| e.compute(last)).unwrap_or(1.0)
     }
 }
 
 #[derive(Clone)]
-pub enum ProdExprEnd {
-    Mult(BaseExpr, Option<Box<ProdExprEnd>>),
-    Div(BaseExpr, Option<Box<ProdExprEnd>>),
+pub enum MultExprEnd {
+    Mult(BaseExpr, Option<Box<MultExprEnd>>),
+    Div(BaseExpr, Option<Box<MultExprEnd>>),
 }
 
-impl Parse for ProdExprEnd {
+impl Parse for MultExprEnd {
     fn parse(l: &[Lexeme]) -> Option<(Self,usize)> {
         let mut tokens = 0;
 
@@ -163,7 +173,7 @@ impl Parse for ProdExprEnd {
 
             if let Some((base, n)) = BaseExpr::parse(&l[tokens..]) {
                 tokens += n;
-                let (end, n) = ProdExprEnd::parse(&l[tokens..]).map(|(e, n)| {
+                let (end, n) = MultExprEnd::parse(&l[tokens..]).map(|(e, n)| {
                     (Some(Box::new(e)), n)
                 }).unwrap_or((None, 0));
                 tokens += n;
@@ -181,18 +191,26 @@ impl Parse for ProdExprEnd {
     }
 }
 
-impl Compute for ProdExprEnd {
-    fn compute(&self, def: f32) -> f32 {
+impl Compute for MultExprEnd {
+    fn compute(&self, last: f32) -> f32 {
         match self {
-            Self::Mult(base, end) => base.compute(def) * end.clone().map(|e| e.compute(def)).unwrap_or(1.0),
-            Self::Div(base, end) => 1.0 / base.compute(def) * end.clone().map(|e| e.compute(def)).unwrap_or(1.0),
+            Self::Mult(base, end) => {
+                base.compute(last) * end.clone()
+                    .map(|e| e.compute(last))
+                    .unwrap_or(1.0)
+            },
+            Self::Div(base, end) => {
+                1.0 / base.compute(last) * end.clone()
+                    .map(|e| e.compute(last))
+                    .unwrap_or(1.0)
+            },
         }
     }
 }
 
 #[derive(Clone)]
 pub enum BaseExpr {
-    Paren(Box<Expr>),
+    Paren(Box<AddExpr>),
     Num(f32)
 }
 
@@ -202,7 +220,7 @@ impl Parse for BaseExpr {
 
         if let Some(Lexeme::LeftParen) = l.get(tokens) {
             tokens += 1;
-            if let Some((expr, n)) = Expr::parse(&l[tokens..]) {
+            if let Some((expr, n)) = AddExpr::parse(&l[tokens..]) {
                 tokens += n;
 
                 if let Some(Lexeme::RightParen) = l.get(tokens) {
@@ -226,10 +244,10 @@ impl Parse for BaseExpr {
 }
 
 impl Compute for BaseExpr {
-    fn compute(&self, def: f32) -> f32 {
+    fn compute(&self, last: f32) -> f32 {
         match self {
             Self::Num(n) => *n,
-            Self::Paren(expr) => expr.compute(def)
+            Self::Paren(expr) => expr.compute(last)
         }
     }
 }
